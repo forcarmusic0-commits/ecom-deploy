@@ -1,0 +1,17 @@
+# Production API image.
+# The API container already runs node server.js, not nodemon,
+# so these steps match ecommerce-backend/Dockerfile.
+
+FROM node:22-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm install --omit=dev
+
+COPY server.js ./
+COPY src ./src
+
+EXPOSE 5000
+
+CMD ["npm", "start"]
