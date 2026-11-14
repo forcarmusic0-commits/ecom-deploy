@@ -1,7 +1,3 @@
-docker-compose.yml
-docker-compose.prod.yml
-DOCKER-PROD.md
-DOCKER.md
 ./ecommerce-backend/node_modules*
 ./ecommerce-backend/.env
 ./ecommerce-backend/.env.example

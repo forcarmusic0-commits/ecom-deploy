@@ -1,0 +1,64 @@
+# Starts 4 containers: two databases, the API, and the shop.
+#
+# From the project root:
+#   docker compose --env-file ecommerce-backend/.env --env-file ecommerce-frontend/.env up -d --build
+
+services:
+  # Products and users live here.
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+
+  # Chat rooms and messages live here.
+  # Password and database name are read straight from ecommerce-backend/.env.
+  # MYSQL_USER is not root: the MySQL image rejects MYSQL_USER=root.
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    env_file: ./ecommerce-backend/.env
+    environment:
+      MYSQL_USER: ecommerce
+    ports:
+      - "3306:3306" # Workbench on this PC uses localhost:3306
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Node API. Built from ecommerce-backend/Dockerfile.
+  api:
+    build: ./ecommerce-backend
+    image: sumit9911/markethouse-web
+    restart: unless-stopped
+    env_file: ./ecommerce-backend/.env
+    environment:
+      # "mongo" and "mysql" are the service names above, not localhost.
+      MONGO_URI: mongodb://mongo:27017/ecommerce_db
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+    ports:
+      - "5000:5000" # your PC port 5000 -> container port 5000
+    depends_on:
+      mongo:
+        condition: service_started
+      mysql:
+        condition: service_healthy
+
+  # React shop. Built from ecommerce-frontend/Dockerfile.
+  web:
+    build: ./ecommerce-frontend
+    image: markethouse-web:1.0
+    restart: unless-stopped
+    env_file: ./ecommerce-frontend/.env
+    ports:
+      - "5173:5173" # your PC port 5173 -> container port 5173
+
+# Keeps database files after the containers are deleted.
+volumes:
+  mongo_data:
+  mysql_data:
