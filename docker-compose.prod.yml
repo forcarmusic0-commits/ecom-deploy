@@ -1,10 +1,7 @@
-# Production stack. Images are already on Docker Hub, so this file only pulls them.
+# Production stack for ecom.work.gd.
 #
-#   docker compose -f docker-compose.prod.yml pull
-#   docker compose -f docker-compose.prod.yml up -d
-#
-# Shop: http://localhost
-# API:  http://localhost:5000
+# Nginx on the host proxies HTTPS traffic to localhost:8080 (shop)
+# and localhost:5000 (API).
 
 services:
   mongo:
@@ -19,8 +16,6 @@ services:
     env_file: ./ecommerce-backend/.env
     environment:
       MYSQL_USER: ecommerce
-    ports:
-      - "3306:3306" # Workbench on this PC uses localhost:3306
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -30,17 +25,21 @@ services:
       retries: 20
 
   api:
-    image: sumit9911/markethouse-api:1.0-prod
+    build:
+      context: ./ecommerce-backend
+      dockerfile: Dockerfile.prod
     restart: unless-stopped
     env_file: ./ecommerce-backend/.env
     environment:
+      NODE_ENV: production
+      COOKIE_SECURE: "true"
       MONGO_URI: mongodb://mongo:27017/ecommerce_db
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
-      # The production shop is on port 80, so the browser origin is http://localhost.
-      CLIENT_URL: http://localhost
+      MYSQL_USER: ecommerce
+      CLIENT_URL: https://ecom.work.gd
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     depends_on:
       mongo:
         condition: service_started
@@ -48,10 +47,15 @@ services:
         condition: service_healthy
 
   web:
-    image: sumit9911/markethouse-web:1.0-prod
+    build:
+      context: ./ecommerce-frontend
+      dockerfile: Dockerfile.prod
+      args:
+        VITE_API_URL: https://ecom.work.gd/api
+        VITE_SOCKET_URL: https://ecom.work.gd
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "127.0.0.1:8080:80"
 
 volumes:
   mongo_data:
