@@ -27,6 +27,12 @@ preserve the existing `MYSQL_PASSWORD` and `MYSQL_ROOT_PASSWORD` values when
 updating the file. Changing them in `.env` does not change passwords in an
 already-initialized database volume.
 
+To create the optional demo admin, set `DEMO_ADMIN_NAME`, `DEMO_ADMIN_EMAIL`,
+and a unique `DEMO_ADMIN_PASSWORD` of at least 12 characters in `.env`. The
+password is hashed before it is stored. The seed does not print or reset the
+password, promote an existing non-admin account, or overwrite existing demo
+products.
+
 The template leaves Google OAuth credentials blank. If using Google login,
 configure its client ID and secret, and register this callback URL with Google:
 
@@ -48,6 +54,19 @@ curl https://ecom.work.gd/api/health
 
 Host Nginx must proxy `/api/` and `/socket.io/` to `127.0.0.1:5000` and other
 requests to `127.0.0.1:8080`. Socket.IO needs the WebSocket upgrade headers.
+
+## Seed demo products and admin
+
+After setting the `DEMO_ADMIN_*` values and starting the Compose services, run
+the idempotent seed from the repository root:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm api npm run seed:demo
+```
+
+This creates the demo admin if the email is unused, three demo categories, and
+six demo products. Existing categories/products are left intact. The admin
+email and password are the values configured in the EC2 `.env`.
 
 To stop containers without deleting database data:
 
