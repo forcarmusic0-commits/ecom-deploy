@@ -6,3 +6,5 @@ node_modules*
 !ecommerce-backend/.env.example
 build*
 dist*
+!ecommerce-backend/.env.example
+!ecommerce-backend/.env.production.example

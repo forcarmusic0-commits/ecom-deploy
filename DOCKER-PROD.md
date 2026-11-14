@@ -1,103 +1,58 @@
-# Production images
+# Production deployment on EC2
 
-`DOCKER.md` is the dev run. This file is the production run: a built shop, the same API process, and how those images are different when you push them to Docker Hub.
+The production stack builds the API and frontend on the EC2 instance using
+`docker-compose.prod.yml`. It serves the shop on `127.0.0.1:8080` and the API
+on `127.0.0.1:5000`; host Nginx should terminate HTTPS and proxy requests for
+`ecom.work.gd` to those local ports. Do not expose MySQL, MongoDB, or the API
+ports publicly.
 
-Dev and production can both be installed on one PC. They use different image tags and different Compose files, so one push does not overwrite the other.
+## Configure environment
 
-| | Dev | Production |
-| --- | --- | --- |
-| Guide | `DOCKER.md` | this file |
-| Compose file | `docker-compose.yml` | `docker-compose.prod.yml` |
-| API Dockerfile | `ecommerce-backend/Dockerfile` | `ecommerce-backend/Dockerfile.prod` |
-| Shop Dockerfile | `ecommerce-frontend/Dockerfile` | `ecommerce-frontend/Dockerfile.prod` |
-| API image | `markethouse-api:1.0` | `markethouse-api:1.0-prod` |
-| Shop image | `markethouse-web:1.0` | `markethouse-web:1.0-prod` |
-| Shop URL | http://localhost:5173 | http://localhost |
-| API URL | http://localhost:5000 | http://localhost:5000 |
+If `ecommerce-backend/.env` does not exist on EC2, create it from the
+production template:
 
-Do not run both Compose files at the same time. Both want port 5000 for the API.
+```bash
+cp ecommerce-backend/.env.production.example ecommerce-backend/.env
+nano ecommerce-backend/.env
+```
 
-## What is different
+If `.env` already exists, do not overwrite it. Edit the existing file instead
+so you don't lose the MySQL credentials used to initialize its data volume.
+Add or update the production settings shown in
+`ecommerce-backend/.env.production.example`.
 
-### API
+Replace the MySQL and JWT placeholders with strong, unique values. Keep `.env`
+private; do not commit it. If the stack has already initialized MySQL data,
+preserve the existing `MYSQL_PASSWORD` and `MYSQL_ROOT_PASSWORD` values when
+updating the file. Changing them in `.env` does not change passwords in an
+already-initialized database volume.
 
-The two API Dockerfiles are the same steps. There is no nodemon in either image. `CMD` is `npm start`, which is `node server.js`. Libraries are installed with `npm install --omit=dev`.
-
-The production Compose file changes one setting the dev file does not: `CLIENT_URL=http://localhost`. The production shop is served on port 80, and the browser sends that origin. The dev shop is on port 5173, so its `CLIENT_URL` stays `http://localhost:5173`.
-
-### Shop
-
-This is the real difference.
-
-| | `Dockerfile` (dev) | `Dockerfile.prod` |
-| --- | --- | --- |
-| What runs | Vite dev server, `npm run dev --host` | `npm run build`, then nginx serves the `dist` folder |
-| Port inside the image | 5173 | 80 |
-| Source code in the final image | yes | no, only the built files |
-| When `VITE_API_URL` is read | every time the container starts, from `.env` | once, while the image is built |
-| After you change the API URL | restart the container | build the image again |
-
-`Dockerfile.prod` has two stages. The first stage is Node. It compiles the React app into static files. The second stage is nginx. It copies only `dist`. The Node toolchain is not in the image you run or push.
-
-nginx here is not a proxy in front of the API. It only serves the shop files. A refresh on `/cart` would 404 without `nginx.conf`, because that path is a React route, not a real file. `try_files` sends those requests to `index.html`.
-
-The production Compose file passes the API address as a build argument:
+The template leaves Google OAuth credentials blank. If using Google login,
+configure its client ID and secret, and register this callback URL with Google:
 
 ```text
-VITE_API_URL=http://localhost:5000/api
-VITE_SOCKET_URL=http://localhost:5000
+https://ecom.work.gd/api/auth/google/callback
 ```
 
-Those strings are compiled into the JavaScript. Changing them in `.env` later does nothing for this image until you build again.
+## Start or update the stack
 
-## Run the production stack
+Ensure DNS points `ecom.work.gd` to the EC2 instance, HTTPS is configured in
+host Nginx, and the EC2 security group allows inbound ports 80 and 443. Then:
 
-Docker Desktop must be running. `ecommerce-backend/.env` must already contain `MYSQL_PASSWORD`, `MYSQL_ROOT_PASSWORD`, and `MYSQL_DATABASE`, as in `DOCKER.md`.
-
-From the project root:
-
-```powershell
+```bash
+docker compose -f docker-compose.prod.yml config --quiet
 docker compose -f docker-compose.prod.yml up -d --build
-```
-
-`-f docker-compose.prod.yml` selects the production file. Without `-f`, Compose uses `docker-compose.yml`, which is the dev stack. `--build` creates `markethouse-api:1.0-prod` and `markethouse-web:1.0-prod`.
-
-```powershell
 docker compose -f docker-compose.prod.yml ps
+curl https://ecom.work.gd/api/health
 ```
 
-Open http://localhost for the shop and http://localhost:5000/api/health for the API.
+Host Nginx must proxy `/api/` and `/socket.io/` to `127.0.0.1:5000` and other
+requests to `127.0.0.1:8080`. Socket.IO needs the WebSocket upgrade headers.
 
-Stop it:
+To stop containers without deleting database data:
 
-```powershell
+```bash
 docker compose -f docker-compose.prod.yml down
 ```
 
-`down` removes these containers. It does not remove the dev containers if those were started from the other file. Both files share the names `mongo_data` and `mysql_data` only if the Compose project name matches. This file uses the project name of the folder, same as the dev file, so they share the database volumes. Stop the dev stack before starting this one, because port 5000 can belong to only one API container.
-
-## Push production images to Docker Hub
-
-The tag is `1.0-prod`, not `1.0`. Pushing `1.0` would replace the dev image on Hub.
-
-1. Create the repos `markethouse-api` and `markethouse-web` if they do not exist. One repo can hold many tags. `1.0` and `1.0-prod` are two tags in the same repo.
-2. Log in:
-
-```powershell
-docker login
-```
-
-3. Add your Hub username and upload. Replace `YOUR_DOCKERHUB_USER`:
-
-```powershell
-docker tag markethouse-api:1.0-prod YOUR_DOCKERHUB_USER/markethouse-api:1.0-prod
-docker tag markethouse-web:1.0-prod YOUR_DOCKERHUB_USER/markethouse-web:1.0-prod
-docker push YOUR_DOCKERHUB_USER/markethouse-api:1.0-prod
-docker push YOUR_DOCKERHUB_USER/markethouse-web:1.0-prod
-```
-
-`docker tag` only renames. `docker push` uploads that tag. On the Hub page you should see both `1.0` (dev, if you pushed it) and `1.0-prod` (this build).
-
-The production shop image is smaller than the dev shop image because it does not contain the React source or `node_modules`. The API images are almost the same size, because both Dockerfiles run the same steps.
-
-If the public site will not be `http://localhost`, set the real API URL in `docker-compose.prod.yml` under `web.build.args`, set `CLIENT_URL` to the real shop origin, then run `docker compose -f docker-compose.prod.yml build` again before `docker tag` and `docker push`. The shop image will not pick up a new URL any other way.
+Do not add `-v` to `down` unless you intend to delete the database volumes.
